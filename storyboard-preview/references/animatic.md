@@ -1,0 +1,84 @@
+# 剪线稿预览视频
+
+下面的做法用 ffmpeg。没有 ffmpeg 时，先问用户能不能装；不能装就按顺序交付单格图片，再附一张"每格停留几秒、用什么转场"的表，并说明这不是视频。
+
+所有中间片段用同一套参数：同一分辨率、同一帧率、同一像素格式（下面用 1280×720、24fps、yuv420p）。不然 xfade 和 concat 会报错。预览用 720p 就够，出得快。
+
+## 1. 裁格
+
+先用 `ffprobe` 看大图的宽高，再按行数和列数算每格的位置。下面是 2×2 大图的右上格（第 2 格）：先切出四分之一，再往里收 3% 去掉白边，最后铺满成片比例。
+
+```bash
+ffmpeg -y -i A1_sheet.png -vf "crop=iw/2:ih/2:iw/2:0,crop=iw*0.94:ih*0.94:iw*0.03:ih*0.03,scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720" A1_2.png
+```
+
+生图模型画的格子不一定严格等分。裁完每张都看一眼：切到相邻格或者留下了白边，就手动调 crop 的偏移量。
+
+## 2. 每个镜头做成一段
+
+同一组里的几格按顺序排成一段，每格停留的时间按分镜表分配。格与格之间默认硬切；动作是连续的，就加 0.2 秒左右的短叠化，看起来更顺。
+
+```bash
+# 每格先做成固定时长的小段
+ffmpeg -y -loop 1 -i A1_1.png -t 1 -vf "fps=24,format=yuv420p" -c:v libx264 A1_1.mp4
+# 同一组的小段直接拼起来（list.txt 每行写一个：file 'A1_1.mp4'）
+ffmpeg -y -f concat -safe 0 -i list.txt -c copy A1_raw.mp4
+```
+
+## 3. 在这一段上做运镜
+
+运镜加在整段上，而不是每格单独加，这样几格之间的镜头运动是连续的。下面的 T 是这一段的秒数，N 是总帧数（T×24），用的时候换成具体数字。
+
+推近（从 1 倍放大到 1.15 倍，以画面中心为准）：
+
+```bash
+ffmpeg -y -i A1_raw.mp4 -vf "scale=2560:1440,zoompan=z='1+0.15*in/N':d=1:x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':s=1280x720:fps=24,format=yuv420p" A1.mp4
+```
+
+拉远：把 z 改成 `1.15-0.15*in/N`。先放大到 2560 再推，可以减少 zoompan 的抖动。
+
+横移（画框从左往右移；要从右往左，把 `t/T` 改成 `(1-t/T)`）：
+
+```bash
+ffmpeg -y -i A1_raw.mp4 -vf "crop=iw/1.2:ih/1.2:x='(iw-ow)*t/T':y='(ih-oh)/2',scale=1280:720,format=yuv420p" A1.mp4
+```
+
+摇镜和跟镜都可以用横移来示意；升降就把 x 和 y 的写法对调。固定机位不用处理。
+
+## 4. 镜头之间接转场
+
+| 设计的转场 | ffmpeg 做法 |
+|---|---|
+| 硬切 | concat 直接拼接 |
+| 叠化 | xfade `transition=fade`（不要用 `dissolve`，那是随机像素颗粒式的溶解，看着像噪点） |
+| 黑场 / 白闪 | xfade `fadeblack` / `fadewhite` |
+| 甩镜 | xfade `smoothleft`（或 `smoothright` 等），时长 0.3 秒左右 |
+| 擦除 | xfade `wipeleft` 等 |
+| 圆形开合 | xfade `circleopen` / `circleclose` |
+| 推进式转场 | xfade `zoomin` |
+| 匹配剪辑 | 硬切；前后两格的主体形状和位置要对上，对不上就调裁切 |
+
+xfade 的 offset 是前一段开始转场的时间点，等于前面所有片段的时长之和减去之前所有转场的重叠时长，再减去本次转场的时长。每做一次转场，总时长会少一个转场时长，所以分配镜头时长时把重叠算进去，不然后面的镜头会和音乐对不上。
+
+```bash
+# A1（4 秒）叠化 1 秒接 A2（3 秒）：offset = 4 - 1 = 3
+ffmpeg -y -i A1.mp4 -i A2.mp4 -filter_complex "[0][1]xfade=transition=fade:duration=1:offset=3,format=yuv420p" A1A2.mp4
+```
+
+## 5. 配乐
+
+```bash
+# 从原曲 0:12 开始取音乐，长度跟着画面
+ffmpeg -y -i preview_silent.mp4 -ss 12 -i song.mp3 -map 0:v -map 1:a -c:v copy -c:a aac -shortest 预览_场景A_v1.mp4
+```
+
+## 6. 交付前自查
+
+- 用 `ffprobe` 看总时长，和分镜表、音乐段落对得上
+- 在每个转场点前后，以及每个镜头中间各抽一帧（`ffmpeg -ss 秒数 -i 预览.mp4 -frames:v 1 check.png`），亲自看一眼：裁切对不对、运镜方向对不对、转场有没有用错
+- 按正常速度播放：不要为了对上音乐把某段压得很快，时长不够就少放一格
+
+## 注意
+
+- 在 Windows 上，滤镜参数里的文件路径用相对路径，`C:/...` 这类写法会被滤镜解析器拆错。
+- 中间文件放在项目文件夹的一个临时目录里，交付后删掉。
