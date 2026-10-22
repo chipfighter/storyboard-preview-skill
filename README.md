@@ -15,13 +15,29 @@
 
 ## 安装
 
-把 `storyboard-preview/` 文件夹复制到：
+### 最简单：让你的 AI 帮你装
 
-- Claude Code：`~/.claude/skills/`
-- Codex：`~/.agents/skills/`
-- 其他 agent：把 `SKILL.md` 当作说明书交给它，`references/` 里的文件放在旁边，让它按需读取。
+把下面这句话发给你的 Claude Code 或 Codex：
 
-剪预览视频需要 [ffmpeg](https://ffmpeg.org/)。没有 ffmpeg 的话，agent 会按顺序交付单格图片，再附一张时长和转场表。
+```
+帮我安装这个 skill：https://github.com/chipfighter/storyboard-preview-skill
+```
+
+它会自己下载并放到正确的位置。装好以后重开一个对话，正常聊你的视频创意就行，聊完准备开始做时，它会自动用上这个 skill。
+
+### 给 AI 的安装说明
+
+如果你是收到上面这句话的 AI：把本仓库里的 `storyboard-preview/` 整个文件夹（包括里面的 `references/`）复制到用户的 skills 目录，然后告诉用户重开对话即可。
+
+- Claude Code：`~/.claude/skills/storyboard-preview/`
+- Codex：`~/.agents/skills/storyboard-preview/`
+- 其他 agent：把 `SKILL.md` 当作说明书，`references/` 里的文件放在旁边，按需读取。
+
+剪预览视频需要 [ffmpeg](https://ffmpeg.org/)。用户电脑上没有的话，先告诉用户，问一下要不要装；不装的话，按顺序交付单格图片，再附一张时长和转场表。
+
+### 手动安装
+
+在本页点 **Code → Download ZIP**，解压后把 `storyboard-preview/` 文件夹复制到上面对应的目录。
 
 ## 文件
 
